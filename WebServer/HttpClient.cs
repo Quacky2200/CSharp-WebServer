@@ -190,53 +190,11 @@ namespace JAWS
             }
             Response.Headers.Add("Server", Server.ServerName);
 
-// Commented out 14th June 2021. Fixed multi-content byte issue bug where bytes are not sent correctly causing corrupt responses
-//             byte[] Headers = Response.GetHeaderBytes();
-//             long Length = Headers.Length + Response.Content.Length;
-//             long Size = Math.Min(Length, SendBufferSize);
-//             byte[] Chunk = new byte[Size];
-
-//             long Offset = 0;
-//             while (Offset < Length)
-//             {
-//                 int CurrentChunkWidth = 0;
-//                 int RestChunkWidth = 0;
-//                 if (Offset < Headers.Length)
-//                 {
-//                     CurrentChunkWidth = (int)Math.Min(Headers.Length - Offset, Size);
-//                     Array.Copy(Headers, Offset, Chunk, 0, CurrentChunkWidth);
-//                 }
-
-//                 if (CurrentChunkWidth < Size)
-//                 {
-//                     RestChunkWidth = (int)Math.Min(Response.Content.Length - Response.Content.Position, Size - CurrentChunkWidth);
-//                     Response.Content.Read(Chunk, CurrentChunkWidth, RestChunkWidth);
-//                 }
-
-//                 int Sent = CurrentChunkWidth + RestChunkWidth;
-//                 try
-//                 {
-//                     Stream.Write(Chunk, 0, Sent);
-//                 }
-//                 catch (Exception e)
-//                 {
-//                     // The client was disconnected during this, only show as information
-//                     // since it's likely due to being closed.
-//                     Server.Log(HttpServer.LOG_TYPE.INFO, "The client has unexpectedly disconnected.", e.Message);
-//                     //if (e.Message.IndexOf("forcibly closed") > -1)
-//                     //{
-//                     //    Server.Log(HttpServer.LOG_TYPE.WARNING, "The connection was forcibly closed, are we sending bytes correctly?");
-//                     //}
-//                     return;
-//                 }
-
-//                 Offset += Sent;
-//             }
             byte[] Headers = Response.GetHeaderBytes();
             
             long Length = Headers.Length + Response.Content.Length;
             
-            int Size = (Length < BUFFER_SIZE ? (int)Length : BUFFER_SIZE);
+            int Size = (Length < SendBufferSize ? (int)Length : SendBufferSize);
             byte[] Chunk;
 
             int Offset = 0, ChunkSize = 0, Sent;
