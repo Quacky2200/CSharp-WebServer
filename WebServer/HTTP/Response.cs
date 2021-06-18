@@ -1,19 +1,31 @@
-﻿using System;
+﻿/**
+ *    This program is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU General Public License as published by
+ *    the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU General Public License for more details.
+ *
+ *    You should have received a copy of the GNU General Public License
+ *    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
-namespace JAWS
+namespace WebServer.HTTP
 {
     public class Response
     {
         public int Status = 200;
         private string StatusName = "";
         public string ContentType = "text/plain";
-        //public byte[] Content;
-        public Stream Content;
+        public Stream Content = new MemoryStream();
 
         public static Dictionary<int, string> StatusCodes = new Dictionary<int, string>
         {
@@ -104,16 +116,21 @@ namespace JAWS
             List<string> HeaderStrings = new List<string>();
             List<string> HeaderKeys = Headers.Keys.ToList();
 
-            if (!Headers.ContainsKey("Content-Type"))
+            if (Content.Length > 0)
             {
-                Headers.Add("Content-Type", ContentType);
+                //Headers.Add("Content-Length", Content.Length);
+                
+                if (!Headers.ContainsKey("Content-Type"))
+                {
+                    Headers.Add("Content-Type", ContentType);
+                }
+
+                if (!Headers.ContainsKey("Content-Disposition"))
+                {
+                    Headers.Add("Content-Disposition", "inline");
+                }
             }
 
-            //Headers.Add("Content-Length", Content.Length);
-            if (!Headers.ContainsKey("Content-Disposition"))
-            {
-                Headers.Add("Content-Disposition", "inline");
-            }
             // Headers.Add("Connection", "close");
             foreach (KeyValuePair<string, dynamic> KVP in Headers)
             {
@@ -151,7 +168,7 @@ namespace JAWS
                 FileInfo info = new FileInfo(FilePath);
                 if (info.Extension != "")
                 {
-                    ContentType = MimeTypeMap.GetMimeType(info.Extension);
+                    ContentType = MimeTypes.GetMimeType(info.Extension);
                 }
                 else
                 {

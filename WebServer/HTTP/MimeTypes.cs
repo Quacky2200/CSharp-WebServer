@@ -1,397 +1,31 @@
+﻿/**
+ *    This program is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU General Public License as published by
+ *    the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU General Public License for more details.
+ *
+ *    You should have received a copy of the GNU General Public License
+ *    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 using System;
-using System.Linq;
 using System.Collections.Generic;
-using System.Threading;
-using System.Net;
-using System.Text;
-using System.IO;
-using System.Diagnostics;
-using System.Net.Sockets;
-using System.Web;
-using Microsoft.CSharp;
+using System.Linq;
 
-public class HTTPServer
+namespace WebServer.HTTP
 {
-    private TcpListener server;
-    private Boolean Quit = false;
-    private Boolean _IsActive = false;
-    private Thread listener;
-    private const int BUFFER_SIZE = 1024;
-    List<Thread> Threads = new List<Thread>();
-    public delegate void OnRequestHandler(HTTPServer sender, Request Request);
-    public event OnRequestHandler OnRequest;
-
-    public HTTPServer(IPAddress IP = null, int port = 8888)
-    {
-        if (IP == null)
-        {
-            IP = IPAddress.Loopback;
-        }
-        server = new System.Net.Sockets.TcpListener(IP, port);
-    }
-
-    protected void MoveToNewProcessingThread(Socket Client)
-    {
-        Thread Current = new Thread(() =>
-        {
-            string Content;
-            List<byte> Bytes = new List<byte>();
-            byte[] Data;
-            int Size = BUFFER_SIZE;
-            while (Size >= BUFFER_SIZE)
-            {
-                Data = new byte[BUFFER_SIZE];
-                Size = Client.Receive(Data);
-                Bytes.AddRange(Data);
-            }
-
-            Content = Encoding.ASCII.GetString(Bytes.ToArray()).Replace("\0", "");
-            if (Content == "")
-            {
-                Client.Close();
-                return;
-            }
-            List<string> HttpMessage = Content.Split(Char.Parse("\n")).ToList();
-            Request Request = new Request();
-
-            string[] Action = HttpMessage[0].TrimEnd(Char.Parse("\r")).Split(Char.Parse(" "));
-            if (Action.Length != 3)
-            {
-                Client.Close();
-                return;
-                //throw new InvalidOperationException("Too many fields in HTTP1/1 spec?");
-            }
-            int Count = HttpMessage.Count;
-            for (int i = 1; i < Count; i++)
-            {
-                if (HttpMessage[i] == "\r")
-                {
-                    HttpMessage.RemoveRange(0, i + 1);
-                    break;
-                }
-                string[] Header = HttpMessage[i].TrimEnd(Char.Parse("\r")).Split(Char.Parse(":"));
-                string key = Header[0];
-                Header[0] = "";
-                Request.Headers.Add(key, String.Join(":", Header).TrimStart(Char.Parse(":")).TrimStart(Char.Parse(" ")));
-            }
-
-            Request.Method = Action[0].ToUpper();
-            string[] Path = Action[1].Split(Char.Parse("?"));
-            Request.Path = Path[0];
-            Path[0] = "";
-            Request.QueryString = String.Join("?", Path).TrimStart(Char.Parse("?"));
-            Path = null;
-            Request.HttpVersion = Action[2];
-            Action = null;
-            Request.Body = String.Join("\n", HttpMessage.ToArray());
-            HttpMessage = null;
-            Content = null;
-            Request.Client = Client;
-            if (OnRequest != null)
-            {
-                OnRequest(this, Request);
-            }
-            else
-            {
-                Send(Client, new Response() { Status = 500, Content = Encoding.ASCII.GetBytes("Internal Server Error") });
-            }
-
-        });
-        Current.Start();
-        Threads.Add(Current);
-
-    }
-
-    public void Send(Socket Client, Response Response)
-    {
-        List<byte> Content = Response.GetBytes().ToList();
-        int OriginalSize = Content.Count;
-        int Size = BUFFER_SIZE;
-        int Count = 0;
-        while (Content.Count > 0)
-        {
-            // Try to send as much as our buffer size allows
-            byte[] Chunk = Content.GetRange(0, Math.Min(BUFFER_SIZE, Content.Count)).ToArray();
-            // Get how much the client has received
-            try
-            {
-                Size = Client.Send(Chunk);
-            } catch (Exception e)
-            {
-                // The client was disconnected during this
-                Debug.WriteLine(e.Message);
-                return;
-            }
-            // Only remove what the client was able to accept
-            // (so that anything left over can be tried again)
-            Content.RemoveRange(0, Size);
-            Count++;
-            if (Count > (OriginalSize * 4))
-            {
-                // We've been here to long. Stop!
-                Client.Close();
-                Debug.WriteLine("Client Timeout?");
-                return;
-            }
-        }
-        Client.Close();
-    }
-
-    public void Start()
-    {
-        // Main listener thread
-        listener = new Thread(() =>
-        {
-            server.Start();
-            while (!Quit)
-            {
-                Socket Client = null;
-                try
-                {
-                    Client = server.AcceptSocket();
-                }
-                catch (/*Socket*/Exception e)
-                {
-                    // Ignore when quiting since the socket
-                    // will have to be interrupted
-                    if (!Quit)
-                    {
-                        Debug.WriteLine(e.Message);
-                        return;
-                    }
-                }
-                if (Client != null)
-                {
-                    MoveToNewProcessingThread(Client);
-                }
-            }
-        });
-        listener.Start();
-        _IsActive = true;
-    }
-
-    public Boolean IsActive()
-    {
-        return _IsActive;
-    }
-
-    public void Stop()
-    {
-        Quit = true;
-        foreach (Thread Thread in Threads)
-        {
-            Thread.Abort();
-        }
-        server.Stop();
-        _IsActive = false;
-    }
-
-    public class Request
-    {
-        public Dictionary<String, String> Headers = new Dictionary<string, string>();
-        public string Method;
-        public string Path;
-        public string QueryString;
-        public string HttpVersion;
-        public string Body;
-        public Socket Client;
-    }
-
-    public class Response
-    {
-        public int Status = 200;
-        private string StatusName = "";
-        public string ContentType = "text/plain";
-        public byte[] Content;
-        public Dictionary<string, dynamic> Headers = new Dictionary<string, dynamic>();
-        public byte[] GetBytes()
-        {
-            ResolveStatus();
-            string HttpMessage = String.Format("{0} {1} {2}", "HTTP/1.1", Status, StatusName) + "\r\n";
-            List<string> HeaderStrings = new List<string>();
-            List<string> HeaderKeys = Headers.Keys.ToList();
-            //for (int i = 0; i < HeaderKeys.Count; i++)
-            //{
-            //    dynamic Obj = Headers[HeaderKeys[i]];
-            //    Headers.Remove(HeaderKeys[i]);
-            //    Headers.Add(HeaderKeys[i].ToLower(), Obj);
-            //}
-            if (!Headers.ContainsKey("Content-Type"))
-            {
-                Headers.Add("Content-Type", ContentType);
-            }
-            Headers.Add("Content-Length", Content.Length);
-            Headers.Add("Server", "dotnet");
-            if (!Headers.ContainsKey("Content-Disposition"))
-            {
-                Headers.Add("Content-Disposition", "inline");
-            }
-            Headers.Add("Connection", "close");
-            foreach (KeyValuePair<string, dynamic> KVP in Headers)
-            {
-                HeaderStrings.Add(KVP.Key + ": " + KVP.Value + "\r\n");
-            }
-            HttpMessage += String.Join("", HeaderStrings) + "\r\n";
-            List<byte> HttpBytes = Encoding.ASCII.GetBytes(HttpMessage).ToList();
-            HttpBytes.AddRange(Content);
-            return HttpBytes.ToArray();
-        }
-
-        protected void ResolveStatus()
-        {
-            Dictionary<int, string> codes = new Dictionary<int, string>
-            {
-                [100] = "Continue",
-                [101] = "Switching Protocols",
-                [102] = "Processing",
-                [200] = "OK",
-                [201] = "Created",
-                [202] = "Accepted",
-                [203] = "Non-Authoritative Information",
-                [204] = "No Content",
-                [205] = "Reset Content",
-                [206] = "Partial Content",
-                [207] = "Multi-Status",
-                [208] = "Already Reported",
-                [226] = "IM Used",
-                [300] = "Multiple Choices",
-                [301] = "Moved Permanently",
-                [302] = "Found",
-                [303] = "See Other",
-                [304] = "Not Modified",
-                [305] = "Use Proxy",
-                [306] = "Switch Proxy",
-                [307] = "Temporary Redirect",
-                [308] = "Permanent Redirect",
-                [400] = "Bad Request",
-                [401] = "Unauthorized",
-                [402] = "Payment Required",
-                [403] = "Forbidden",
-                [404] = "Not Found",
-                [405] = "Method Not Allowed",
-                [406] = "Not Acceptable",
-                [407] = "Proxy Authentication Required",
-                [408] = "Request Timeout",
-                [409] = "Conflict",
-                [410] = "Gone",
-                [411] = "Length Required",
-                [412] = "Precondition Failed",
-                [413] = "Request Entity Too Large",
-                [414] = "Request-URI Too Long",
-                [415] = "Unsupported Media Type",
-                [416] = "Requested Range Not Satisfiable",
-                [417] = "Expectation Failed",
-                [418] = "I\"m a teapot",
-                [419] = "Authentication Timeout",
-                [420] = "Enhance Your Calm",
-                [420] = "Method Failure",
-                [422] = "Unprocessable Entity",
-                [423] = "Locked",
-                [424] = "Failed Dependency",
-                [425] = "Unordered Collection",
-                [426] = "Upgrade Required",
-                [428] = "Precondition Required",
-                [429] = "Too Many Requests",
-                [431] = "Request Header Fields Too Large",
-                [444] = "No Response",
-                [449] = "Retry With",
-                [450] = "Blocked by Windows Parental Controls",
-                [451] = "Redirect",
-                [451] = "Unavailable For Legal Reasons",
-                [494] = "Request Header Too Large",
-                [495] = "Cert Error",
-                [496] = "No Cert",
-                [497] = "HTTP to HTTPS",
-                [499] = "Client Closed Request",
-                [500] = "Internal Server Error",
-                [501] = "Not Implemented",
-                [502] = "Bad Gateway",
-                [503] = "Service Unavailable",
-                [504] = "Gateway Timeout",
-                [505] = "HTTP Version Not Supported",
-                [506] = "Variant Also Negotiates",
-                [507] = "Insufficient Storage",
-                [508] = "Loop Detected",
-                [509] = "Bandwidth Limit Exceeded",
-                [510] = "Not Extended",
-                [511] = "Network Authentication Required",
-                [598] = "Network read timeout error",
-                [599] = "Network connect timeout error",
-            };
-            if (!codes.ContainsKey(Status))
-            {
-                Status = 500;
-                StatusName = codes[500];
-                Content = Encoding.ASCII.GetBytes(StatusName);
-                // No need to add more as of yet.
-                Debug.WriteLine("Invalid server HTTP code");
-            }
-            else
-            {
-                StatusName = codes[Status];
-            }
-        }
-
-        public void LoadFile(String FilePath)
-        {
-            if (System.IO.File.Exists(FilePath))
-            {
-                Content = System.IO.File.ReadAllBytes(FilePath);
-                FileInfo info = new FileInfo(FilePath);
-                ContentType = MimeTypeMap.GetMimeType(info.Extension);
-            }
-            else
-            {
-                throw new System.IO.FileNotFoundException("File not found at path: " + FilePath);
-            }
-        }
-
-        public void SetText(String Text)
-        {
-            Content = Encoding.ASCII.GetBytes(Text);
-        }
-
-        public void SetHtml(String Html)
-        {
-            Content = Encoding.ASCII.GetBytes(Html);
-            ContentType = "text/html";
-        }
-
-        public static Response SendFile(String FilePath, Boolean ForceDownload = true)
-        {
-            Response Result = new Response();
-            Result.LoadFile(FilePath);
-            if (ForceDownload == true)
-            {
-                FileInfo info = new FileInfo(FilePath);
-                Result.Headers.Add("Content-Disposition", "attachment; filename=" + info.Name);
-            }
-            return Result;
-        }
-
-        public static Response SendText(String Text)
-        {
-            Response Result = new Response();
-            Result.SetText(Text);
-            return Result;
-        }
-        public static Response SendHtml(String Text)
-        {
-            Response Result = new Response();
-            Result.SetHtml(Text);
-            return Result;
-        }
-    }
-
-    public static class MimeTypeMap
+    public static class MimeTypes
     {
         private static readonly Lazy<IDictionary<string, string>> _mappings = new Lazy<IDictionary<string, string>>(BuildMappings);
 
         private static IDictionary<string, string> BuildMappings()
         {
             var mappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
-
-                #region Big freaking list of mime types
+                #region Big list of mime types
             
                 // maps both ways,
                 // extension -> mime type
@@ -1073,8 +707,7 @@ public class HTTPServer
                 {"x-world/x-vrml", ".xof"},
 
                 #endregion
-
-                };
+            };
 
             var cache = mappings.ToList(); // need ToList() to avoid modifying while still enumerating
 
@@ -1129,6 +762,7 @@ public class HTTPServer
             {
                 return extension;
             }
+
             if (throwErrorIfNotFound)
             {
                 throw new ArgumentException("Requested mime type is not registered: " + mimeType);
@@ -1139,5 +773,4 @@ public class HTTPServer
             }
         }
     }
-
 }
