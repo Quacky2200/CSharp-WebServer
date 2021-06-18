@@ -1,17 +1,25 @@
-# CSharp-WebServer (Mono)
-This is a basic C# web server originally created for a portable dotnet library. I wrote the web server class within a couple of hours and slowly improved parts of it. I then decided it would be fun to try and make it serve files and potentially have the ability to create web scripts.
+# CSharp WebServer
+This is a portable C# web server library. It was first created within one WebServer.cs file in a few hours, and has been expanding and improving slowly over time.
 
-To extend functionality from serving files; I found that Jint could be a potentially useful library, and perhaps a later improvement could be some configuration options, as well as FastCGI support which could allow PHP to be used than just C#.
+You can:
+- Serve a directory
+- Experiment with the example demo
+- Extend to serve API requests with JSON, XML, etc...
+- Import this library to your program easily
+- Use SSL HTTPS with a PFX certificate
+- Use websockets
+- Create routes
 
-I had always wondered if I could create a HTTP server when I was in college (and now I have). Beforehand; I made a game that was to use sockets using my own UTP protocol.
+The example demo does have the start of a Jint instance which could become useful in various projects...
 
 This project is not as configurable in comparison to Apache or Nginx, but it can be used in dotnet libraries without the need to use the HTTP listener (which requires admin privileges) - which was the main reason for this software.
 
-Basic HTTPS support is now supported using an SslStream. KeepAlive was attempted but does not follow the protocol closely and is currently buggy until more time is put towards making this as usable as possible. Changes we made to also send files using a Stream rather than placing it into a memory buffer (as was done first for prototyping).
+Basic HTTPS support is now supported using an SslStream. KeepAlive was attempted but does not follow the protocol closely at this time.
+
+Responses (text, files, etc) are streamed to the client than fully loaded into memory beforehand (the original commit).
 
 Things Missing (To Do):
 - Partial Request support
-- Web Sockets
 - Compression Mechanisms (Use GZipStream within System.IO.Compression)
 - HTTP 2
 - FastCGI support
