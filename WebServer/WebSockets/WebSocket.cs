@@ -444,7 +444,7 @@ namespace WebServer.WebSockets
 
                 Frames.Add(new byte[2] {
                     (byte)((int)FrameFIN.FINISHED | (int)OpCode),
-                    1 // Masked despite lack of data
+                    0 // No mask for clients & no length in control frames
                 });
             }
 
